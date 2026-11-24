@@ -123,3 +123,16 @@ class ModelTests(TestCase):
         model_admin = QuestionAdmin(Question, AdminSite())
         self.assertFalse(model_admin.has_add_permission(None))
         self.assertFalse(model_admin.has_delete_permission(None, self.question()))
+
+    def test_admin_rejects_executable_quiz_title(self):
+        """ModelForms protect the unchanged frontend from admin-entered markup."""
+        form_type = modelform_factory(Quiz, fields=["title"])
+        form = form_type(data={"title": "<svg onload=alert(1)>"}, instance=self.quiz)
+        self.assertFalse(form.is_valid())
+        self.assertIn("title", form.errors)
+
+    def test_question_options_reject_html(self):
+        """Generated or admin-edited answer options must not contain HTML markup."""
+        options = ["<img src=x onerror=alert(1)>", "b", "c", "d"]
+        with self.assertRaises(ValidationError):
+            self.question(question_options=options).full_clean()

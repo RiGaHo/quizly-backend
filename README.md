@@ -125,3 +125,26 @@ not guess client type from User-Agent or Sec-Fetch headers and do not silently
 allow absent Origin/Referer. Use the same hostname for local frontend/backend;
 `localhost` and `127.0.0.1` are different cookie sites. Production uses the same
 HTTPS origin for frontend and `/api/`.
+
+## Quiz management
+
+`GET /api/quizzes/` returns a direct JSON array of the authenticated user's
+quizzes, newest first. `GET /api/quizzes/{id}/` returns one quiz with ordered
+nested questions. `PATCH` at the same URL accepts only `title` and/or
+`description`, returns the stored values and preserves omitted fields. Protected
+or unknown fields are rejected with 400. `DELETE` removes the quiz and its
+questions and returns 204 with no body. PUT and separate question CRUD routes
+are not provided. Quiz generation by POST is the next implementation phase.
+
+Detail lookup deliberately checks existence before ownership: existing foreign
+IDs return 403, absent IDs 404, and missing authentication 401. This reveals ID
+existence as required by the supplied contract, without returning foreign data.
+The list query is always scoped to its owner. DRF generic mixins implement the
+standard operations with object permissions and a restricted serializer.
+
+Texts are plain text: executable HTML markup is rejected, including admin
+edits, rather than silently rewritten or HTML-escaped in API output. Harmless
+comparison text such as `2 < 3` remains unchanged. This reduces risk in the
+unchanged reference frontend's HTML sinks; the separate portfolio frontend will
+also use safe DOM insertion. Limits: titles 200, descriptions 3000, question
+titles 1000 and individual options/answers 500 characters.

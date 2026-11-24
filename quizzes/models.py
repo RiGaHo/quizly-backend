@@ -4,15 +4,15 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from .validators import validate_options
+from .validators import validate_options, validate_plain_text
 
 
 class Quiz(models.Model):
     """Store one generated quiz and its source video."""
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    title = models.CharField(max_length=200)
-    description = models.TextField(max_length=3000)
+    title = models.CharField(max_length=200, validators=[validate_plain_text])
+    description = models.TextField(max_length=3000, validators=[validate_plain_text])
     video_url = models.URLField(max_length=200)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -32,9 +32,9 @@ class Question(models.Model):
 
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
     position = models.PositiveSmallIntegerField()
-    question_title = models.CharField(max_length=1000)
+    question_title = models.CharField(max_length=1000, validators=[validate_plain_text])
     question_options = models.JSONField(validators=[validate_options])
-    answer = models.CharField(max_length=500)
+    answer = models.CharField(max_length=500, validators=[validate_plain_text])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
