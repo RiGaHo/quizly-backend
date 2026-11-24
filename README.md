@@ -81,3 +81,47 @@ editing but not adding, moving or deleting questions independently. Quiz and
 question timestamps are read-only. The naming check permits Django/unittest's
 required lifecycle names (`setUp`, `tearDown`, `setUpClass`, `tearDownClass`,
 `setUpTestData`); their physical length and docstrings are still checked.
+
+## Cookie authentication and CSRF
+
+`POST /api/register/` accepts `username`, `email`, `password`, and
+`confirmed_password`; success returns 201. Password rules match the original
+frontend: at least six characters, an uppercase letter, lowercase letter and a
+digit (maximum 128). Django hashes passwords. Registration does not log users in.
+`POST /api/login/` accepts `username` and `password`; success returns 200 with
+`detail` and `user: {id, username, email}`. Invalid credentials return a generic
+401. `POST /api/token/refresh/` needs only the refresh cookie; it works with an
+expired access cookie, without a body or Content-Type header.
+
+JWTs appear only in HttpOnly `access_token` and `refresh_token` cookies, scoped
+to `/api/`, host-only, SameSite=Lax, Secure outside explicit local debug mode.
+Access lasts 15 minutes; refresh and its server-side session last seven days.
+There is no refresh rotation: renewal does not extend the session's deadline.
+An Authorization header cannot replace the cookies. API responses use no-store.
+
+`POST /api/logout/` requires a valid access cookie and revokes its login session
+before expiring both cookies. Every access and refresh validates the same signed
+session ID against persistent database state. Revocation rejects all tokens from
+that login, including renewed access tokens. Other independently established
+logins remain valid. Refresh never writes session state, so an overlapping
+refresh cannot restore a revoked session: even a token issued after a concurrent
+logout is rejected on use. A request already authorized before logout may finish.
+With expired access, refresh first and then logout. No tokens or passwords are
+stored in application logs; session rows contain identity and lifecycle dates.
+
+Unsafe API requests must contain an exact allowed `Origin`, or, only when
+Origin is absent, a Referer from the same origin or an explicitly allowed
+frontend. Missing provenance, `Origin: null`, wildcard-like matches and foreign
+origins return 403. Payloads must be JSON; empty logout and refresh bodies need
+no content type. CORS permissions alone are not used as CSRF protection. The
+Django admin keeps Django's normal CSRF-token protection.
+
+The original frontend supplies Origin automatically through browser fetch and
+needs no changes. For curl/Postman/automated clients, explicitly set
+`Origin: http://127.0.0.1:8000` for local API writes (or the actual configured
+origin). This header is a browser CSRF boundary, **not authentication**: nonbrowser
+clients can set it but still require valid credentials or signed cookies. We do
+not guess client type from User-Agent or Sec-Fetch headers and do not silently
+allow absent Origin/Referer. Use the same hostname for local frontend/backend;
+`localhost` and `127.0.0.1` are different cookie sites. Production uses the same
+HTTPS origin for frontend and `/api/`.
