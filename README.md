@@ -65,3 +65,19 @@ Responsibility boundaries, meaningful naming and obsolete code require review.
 
 Test settings contain only nonsecret fixtures, use an in-memory database and a
 fast password hasher. Never serve the application with test settings.
+
+## Data integrity and administration
+
+Users have normalized, case-insensitively unique email addresses. Login sessions
+provide a shared revocation identity for the forthcoming cookie token endpoints.
+Quizzes belong to a user; questions cascade when their quiz is deleted. Question
+positions are unique within a quiz and constrained to 1–10 by SQLite. Application
+and admin validation require four distinct nonempty options and an exact answer.
+The generation service must validate and save all ten questions atomically;
+SQL row constraints alone cannot enforce a related-row count.
+
+Admin quiz forms require exactly ten questions. Individual question pages permit
+editing but not adding, moving or deleting questions independently. Quiz and
+question timestamps are read-only. The naming check permits Django/unittest's
+required lifecycle names (`setUp`, `tearDown`, `setUpClass`, `tearDownClass`,
+`setUpTestData`); their physical length and docstrings are still checked.

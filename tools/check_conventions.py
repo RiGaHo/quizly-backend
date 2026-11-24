@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+FRAMEWORK_NAMES = {"setUp", "tearDown", "setUpClass", "tearDownClass", "setUpTestData"}
 
 
 def source_files():
@@ -22,7 +23,9 @@ def function_errors(node):
     errors = []
     if node.end_lineno - node.lineno + 1 > 14:
         errors.append("function exceeds 14 physical lines")
-    if not re.fullmatch(r"_?[a-z][a-z0-9_]*|__[a-z][a-z0-9_]*__", node.name):
+    if node.name not in FRAMEWORK_NAMES and not re.fullmatch(
+        r"[a-z_][a-z0-9_]*", node.name
+    ):
         errors.append("function name is not snake_case")
     if not ast.get_docstring(node):
         errors.append("missing function docstring")
