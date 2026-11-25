@@ -169,3 +169,27 @@ must manage the temporary directory for complete input/output cleanup.
 URL/audio unit tests use controlled files and mock only the FFmpeg subprocess
 boundary. They do not demonstrate a real YouTube download or installed FFmpeg.
 The download and complete generation pipeline are still in implementation.
+
+## Download transport
+
+The download module uses pinned yt-dlp and yt-dlp-ejs releases plus Node 22 or
+newer in PATH. It enables only the YouTube extractor, selects direct HTTPS media
+instead of manifests and downloads one normalized video. No personal cookies,
+proxy environment, remote EJS components, external downloaders or persistent
+metadata cache are used. Current defaults are 15-minute videos, 100 MB download
+size, a 15-second socket timeout and a 120-second progress deadline; no retries.
+Live/upcoming videos and final metadata without duration are rejected.
+
+All yt-dlp requests use a dedicated urllib transport. Only youtube.com subdomains,
+googlevideo.com subdomains and youtubei.googleapis.com are allowed over HTTPS on
+443. DNS answers must all be globally routable. Connections use the checked
+numeric address while standard TLS still verifies the original hostname. Redirects
+pass through the same checks; HTTP downgrade, file, FTP and data transports are
+unavailable. This adapter deliberately uses pinned yt-dlp transport APIs and needs
+regression testing when yt-dlp is upgraded.
+
+Progress deadlines do not interrupt a stalled DNS lookup or JavaScript challenge.
+A hard whole-job deadline and temporary-directory cleanup still need integration
+in the synchronous generation orchestration. No real YouTube download has yet
+been performed; tests cover controlled DNS/socket boundaries and actual yt-dlp
+transport construction. Runtime transport compatibility remains to be verified.
