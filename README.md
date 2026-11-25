@@ -225,3 +225,40 @@ cross-process concurrency integration are still pending.
 Tests exercise real process reuse, timeout termination, failure sanitization and
 recovery; transcription tests replace the heavy model boundary. Real speech
 transcription and full pipeline integration remain separate checks.
+
+## Gemini boundary and credentials
+
+The Gemini module uses the official `google-genai` SDK with the stable
+`gemini-3.8-flash` model as its explicit default. The model can be passed by the
+pipeline; there is no automatic fallback or model upgrade. Official model and
+pricing references checked on 2026-11-25:
+[model](https://aistudio.google.com/docs/models/gemini-3.8-flash),
+[pricing](https://aistudio.google.com/docs/pricing),
+[structured output](https://aistudio.google.com/docs/structured-output).
+A Free Tier is documented, but account eligibility, quotas and future pricing
+must be checked by the operator. No billing or API service is activated here.
+
+The credential resolver accepts an explicit environment value or an explicitly
+configured secret-file path. Both supplied together are an error; neither source
+silently overrides the other. Missing, unreadable, empty or oversized credentials
+fail without revealing paths or contents. The file is read at request time and
+bounded to 4096 characters. The pipeline will wire these inputs to
+`GEMINI_API_KEY` and `GEMINI_API_KEY_FILE`; the preferred production file is
+`/run/secrets/gemini_api_key`, provisioned separately by the operator. No real key
+belongs in this repository, development VM, CI or review archive.
+
+Only transcript text is sent to `generativelanguage.googleapis.com`; no audio,
+user identity, database records or authentication cookies are included. The
+client explicitly disables Vertex/Enterprise autodiscovery, environment proxy
+inheritance and automatic retries. A call has a 60-second SDK timeout by default,
+8192 output-token limit and no tools, search or URL context. Transcript instructions
+are treated as untrusted source material, separated from the system instruction.
+The full pipeline's parent deadline will additionally bound the call.
+
+Gemini receives a JSON schema, but returned JSON is independently checked with
+strict Pydantic types, bounded plain text, exactly ten questions, four distinct
+options and an exact answer match. Blocked/truncated finish states, malformed or
+oversized responses are rejected. No quiz is fabricated on failure. Tests use
+controlled SDK responses and fixture credentials; no real Gemini request has
+been made. Environment wiring, atomic persistence and POST integration follow
+in the next implementation phase.
