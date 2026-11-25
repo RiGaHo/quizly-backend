@@ -21,6 +21,7 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --no-create-home quizly \
     && install -d -o 10001 -g 10001 /data /models
 COPY --from=javascript /usr/local/bin/node /usr/local/bin/node
+COPY --from=javascript /usr/local/LICENSE /usr/share/licenses/node/LICENSE
 COPY --from=dependencies /opt/venv /opt/venv
 WORKDIR /app
 COPY manage.py ./

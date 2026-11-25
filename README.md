@@ -319,7 +319,8 @@ a general security guarantee.
 
 Build locally with `docker build -t quizly-backend:local .`. The runtime uses
 Python 3.12.16 on Debian Trixie, Node 24.22.3 LTS for yt-dlp's local JavaScript
-solver, distro FFmpeg and the pinned CPU Python dependencies. Base-image
+solver, distro FFmpeg and the pinned CPU Python dependencies. Node's bundled
+license is preserved at `/usr/share/licenses/node/LICENSE`. Base-image
 manifests support AMD64 and ARM64; this alone does not prove an ARM64 build.
 Sources: [Python official image](https://hub.docker.com/_/python) and
 [Node security release](https://nodejs.org/en/blog/release/v24.22.3).
