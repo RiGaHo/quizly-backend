@@ -314,3 +314,67 @@ A dependency audit found no known vulnerabilities after upgrading the local
 installer to pip 26.3. `pip-audit` cannot identify `torch==2.15.0+cpu` on PyPI,
 so that CPU wheel remains outside this audit's coverage. A clean audit is not
 a general security guarantee.
+
+## Container runtime
+
+Build locally with `docker build -t quizly-backend:local .`. The runtime uses
+Python 3.12.16 on Debian Trixie, Node 24.22.3 LTS for yt-dlp's local JavaScript
+solver, distro FFmpeg and the pinned CPU Python dependencies. Base-image
+manifests support AMD64 and ARM64; this alone does not prove an ARM64 build.
+Sources: [Python official image](https://hub.docker.com/_/python) and
+[Node security release](https://nodejs.org/en/blog/release/v24.22.3).
+Rebuild regularly to incorporate Debian security updates; apt packages are
+resolved at build time, so builds are not claimed to be bit-for-bit identical.
+
+Runtime code is root-owned and runs as UID/GID `10001:10001` on port 8000.
+Only application packages, manage.py and startup configuration enter `/app`.
+The build context excludes tests, test settings, Git, databases, environments,
+model weights and secrets. No Gemini key is used during build or normal startup.
+There is no embedded production database or model download during image build.
+
+Use a read-only root filesystem, `--cap-drop ALL` and
+`--security-opt no-new-privileges:true`. Provide writable `/data` for SQLite,
+`/models` for Whisper weights and `/tmp` for audio/process locks/server temporary
+files. Bind-mounted directories must be writable by 10001:10001; the runtime
+never changes host ownership or runs as root. A named volume initially inherits
+the image directory's ownership. Read-only secret mounts remain separate.
+Set `GEMINI_API_KEY_FILE=/run/secrets/gemini_api_key` when a reviewed real key is
+available. Do not pass a key as a build argument or commit a secret file.
+
+The default 900-second mono PCM audio occupies about 28.8 MB; source downloads
+are limited to 100 MB. Conversion and decoder overhead, Python/Whisper/PyTorch,
+model downloads and model inference need additional memory. `/tmp` at 512 MiB
+is a starting point for local smoke tests only, not a measured Pi requirement.
+A tmpfs counts toward RAM; choose its size and container RAM limit together.
+The persistent base-model cache needs additional space. Actual peak memory and
+performance on Raspberry Pi must be measured before choosing production limits.
+
+The entrypoint checks Django configuration and migrates before starting
+Gunicorn. Run only one application instance during this migration/start phase;
+rolling overlapping replicas sharing SQLite are not supported. Back up the
+SQLite database before applying a new image. Diagnostic command overrides
+(e.g. `python manage.py check`) skip automatic migrations. Create administrators
+explicitly; no default account is provisioned. Admin is for local development
+or a separately restricted operator path, never a public proxy route.
+The API runtime does not expose an admin static-file service.
+
+Gunicorn defaults to one worker and two threads, permitting ordinary requests
+while a synchronous generation is active. One child retains one Whisper model;
+a shared file lock serializes generation across workers. Increasing
+`GUNICORN_WORKERS` can duplicate resident models and is discouraged on the Pi.
+`GUNICORN_THREADS` and `GUNICORN_TIMEOUT` are configurable; defaults are 2 and
+960 seconds. `GENERATION_TIMEOUT=900` bounds each job in the child even with
+threaded Gunicorn (whose timeout measures worker liveness, not request duration).
+An HTTP client disconnect does not cancel ongoing generation. Restarting or
+force-killing the container loses in-flight work; the database stays atomic.
+
+For later deployment prefer direct Traefik routing: `/api/` to backend:8000,
+everything else to frontend:8080 on the existing `web-stack-proxy` network.
+Use project-specific service names and no public backend port. Do not route
+`/admin/`. No Nginx API proxy is required. Configure `TRUST_PROXY=true` only when
+all backend traffic comes through a trusted proxy that replaces forwarded
+headers; protect access from other services on the shared network accordingly.
+Set the production host and exact HTTPS frontend origin explicitly. HSTS remains
+an edge/deployment decision. Proxy, Cloudflare and client timeouts can expire
+before CPU processing completes; the configured backend deadline is not proof
+of a working public synchronous round trip on a Raspberry Pi.
