@@ -6,9 +6,12 @@ from pathlib import Path
 import environ
 from django.core.exceptions import ImproperlyConfigured
 
+from .validation import validate_origins
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
+if env.bool("DJANGO_READ_DOTENV", default=True):
+    environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=[])
@@ -72,6 +75,7 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 CORS_ALLOWED_ORIGINS = env.list("FRONTEND_ORIGINS", default=[])
+validate_origins(CORS_ALLOWED_ORIGINS, DEBUG)
 CORS_ALLOW_CREDENTIALS = True
 CORS_URLS_REGEX = r"^/api/.*$"
 CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS

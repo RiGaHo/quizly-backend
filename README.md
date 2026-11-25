@@ -11,6 +11,7 @@ Python 3.12 is the selected runtime. Create an isolated environment:
 ```sh
 python3.12 -m venv .venv
 . .venv/bin/activate
+python -m pip install --upgrade pip==26.3
 pip install -r requirements-dev.txt
 cp .env.example .env
 python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
@@ -295,3 +296,21 @@ After complete independent validation, one transaction saves the quiz and all te
 questions. Any insertion failure rolls back everything. Parent-owned temporary
 files are removed after success, failure and a controlled child timeout. An abrupt
 host crash or SIGKILL of the parent can leave files until host/container cleanup.
+
+### Configuration and HTTP verification
+
+`FRONTEND_ORIGINS` accepts exact origins only (no paths, wildcards or userinfo).
+Production requires HTTPS origins; explicit HTTP origins are supported with
+`DJANGO_DEBUG=true` for the original local frontend. Set `DJANGO_READ_DOTENV=false`
+to prevent local `.env` loading in automated or controlled deployments. Tests
+disable dotenv and clear Gemini credential inputs; no real key is needed.
+
+`tests.test_http` runs Django's live server over a real loopback socket and uses
+a standard HTTP cookie jar for registration, login, quiz listing, bodyless
+refresh, logout and subsequent rejection. This verifies HTTP behavior, not an
+actual browser's SameSite/CORS enforcement or the external AI pipeline.
+
+A dependency audit found no known vulnerabilities after upgrading the local
+installer to pip 26.3. `pip-audit` cannot identify `torch==2.15.0+cpu` on PyPI,
+so that CPU wheel remains outside this audit's coverage. A clean audit is not
+a general security guarantee.

@@ -6,6 +6,14 @@ import sys
 
 from django.test import SimpleTestCase
 
+UNSAFE_ORIGINS = (
+    "*",
+    "null",
+    "https://example.com/path",
+    "https://user@example.com",
+    "http://example.com",
+)
+
 
 class ConfigurationTests(SimpleTestCase):
     """Validate startup boundaries without importing production settings in tests."""
@@ -15,6 +23,7 @@ class ConfigurationTests(SimpleTestCase):
         environment = {
             k: v for k, v in os.environ.items() if not k.startswith("DJANGO_")
         }
+        environment["DJANGO_READ_DOTENV"] = "false"
         environment.update(values)
         return subprocess.run(
             [sys.executable, "-c", "import config.settings"],
@@ -45,5 +54,26 @@ class ConfigurationTests(SimpleTestCase):
         result = self.run_settings(
             DJANGO_SECRET_KEY="a" * 64,
             DJANGO_ALLOWED_HOSTS="quizly.example.com",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unsafe_origins_rejected_at_startup(self):
+        """Do not accidentally trust wildcard, path, userinfo or insecure origins."""
+        for origin in UNSAFE_ORIGINS:
+            result = self.run_settings(
+                DJANGO_SECRET_KEY="a" * 64,
+                DJANGO_ALLOWED_HOSTS="example.com",
+                FRONTEND_ORIGINS=origin,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("FRONTEND_ORIGINS", result.stderr)
+
+    def test_local_http_origin_is_explicitly_supported(self):
+        """Debug mode supports the unmodified local frontend's HTTP origin."""
+        result = self.run_settings(
+            DJANGO_SECRET_KEY="local-test-only",
+            DJANGO_DEBUG="true",
+            DJANGO_ALLOWED_HOSTS="127.0.0.1",
+            FRONTEND_ORIGINS="http://127.0.0.1:5500",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
