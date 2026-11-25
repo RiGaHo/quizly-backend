@@ -1,8 +1,8 @@
 # Quizly Backend
 
 Django REST API for generating personal quizzes from YouTube audio using local
-Whisper transcription and Gemini Flash. Implementation is in progress; the
-initial commit provides configuration and checks, not a finished quiz service.
+Whisper transcription and Gemini Flash. The nine documented
+API operations are implemented; real external integration remains unverified.
 
 ## Development setup
 
@@ -31,8 +31,8 @@ python manage.py runserver 127.0.0.1:8000
 
 FFmpeg must be installed as a system executable in PATH for audio processing
 and Whisper (on Debian/Ubuntu: `sudo apt install ffmpeg`). yt-dlp also requires
-a supported JavaScript runtime and its EJS component. AI dependencies and
-pipeline setup will be documented with their implementation.
+a supported JavaScript runtime and its EJS component. AI dependencies are included in
+requirements-ai.txt and installed through requirements.txt.
 
 Serve the provided, separately obtained frontend on `127.0.0.1`, for example
 port 5500. Its API base is `http://127.0.0.1:8000/api/`. Add the exact frontend
@@ -134,7 +134,7 @@ nested questions. `PATCH` at the same URL accepts only `title` and/or
 `description`, returns the stored values and preserves omitted fields. Protected
 or unknown fields are rejected with 400. `DELETE` removes the quiz and its
 questions and returns 204 with no body. PUT and separate question CRUD routes
-are not provided. Quiz generation by POST is the next implementation phase.
+are not provided. POST generation is described below.
 
 Detail lookup deliberately checks existence before ownership: existing foreign
 IDs return 403, absent IDs 404, and missing authentication 401. This reveals ID
@@ -163,12 +163,12 @@ It invokes FFmpeg without a shell, disables network protocols and playlist
 demuxers, limits decode time and uses one thread. The default conversion deadline
 is 120 seconds and maximum audio duration 900 seconds; the pipeline can supply
 explicit limits. Output is mono 16-bit PCM at 16 kHz and is checked for format,
-duration, byte size and truncation. Failed output is removed. The owning pipeline
-must manage the temporary directory for complete input/output cleanup.
+duration, byte size and truncation. Failed output is removed. The pipeline owns
+the temporary directory and cleans input/output files after success and failure.
 
 URL/audio unit tests use controlled files and mock only the FFmpeg subprocess
 boundary. They do not demonstrate a real YouTube download or installed FFmpeg.
-The download and complete generation pipeline are still in implementation.
+The pipeline calls the real download and conversion modules.
 
 ## Download transport
 
@@ -189,8 +189,8 @@ unavailable. This adapter deliberately uses pinned yt-dlp transport APIs and nee
 regression testing when yt-dlp is upgraded.
 
 Progress deadlines do not interrupt a stalled DNS lookup or JavaScript challenge.
-A hard whole-job deadline and temporary-directory cleanup still need integration
-in the synchronous generation orchestration. No real YouTube download has yet
+The parent process additionally enforces a whole-job deadline and cleans the
+temporary directory after terminating a stalled child. No real YouTube download has yet
 been performed; tests cover controlled DNS/socket boundaries and actual yt-dlp
 transport construction. Runtime transport compatibility remains to be verified.
 
@@ -219,12 +219,12 @@ failed/timed-out tasks discard the process. A parent deadline terminates the
 process group, including FFmpeg/Node descendants. A subsequent request starts a
 fresh child. This boundary also covers stalled native inference and DNS work,
 which cannot be reliably interrupted by progress callbacks alone. Use one
-Gunicorn worker to avoid duplicate model allocations; complete pipeline and
-cross-process concurrency integration are still pending.
+Gunicorn worker to avoid duplicate model allocations. A shared file lock also
+limits generation across processes within the same instance.
 
 Tests exercise real process reuse, timeout termination, failure sanitization and
 recovery; transcription tests replace the heavy model boundary. Real speech
-transcription and full pipeline integration remain separate checks.
+transcription and real external pipeline integration remain separate checks.
 
 ## Gemini boundary and credentials
 
@@ -242,7 +242,7 @@ The credential resolver accepts an explicit environment value or an explicitly
 configured secret-file path. Both supplied together are an error; neither source
 silently overrides the other. Missing, unreadable, empty or oversized credentials
 fail without revealing paths or contents. The file is read at request time and
-bounded to 4096 characters. The pipeline will wire these inputs to
+bounded to 4096 characters. The pipeline wires these inputs to
 `GEMINI_API_KEY` and `GEMINI_API_KEY_FILE`; the preferred production file is
 `/run/secrets/gemini_api_key`, provisioned separately by the operator. No real key
 belongs in this repository, development VM, CI or review archive.
@@ -253,12 +253,45 @@ client explicitly disables Vertex/Enterprise autodiscovery, environment proxy
 inheritance and automatic retries. A call has a 60-second SDK timeout by default,
 8192 output-token limit and no tools, search or URL context. Transcript instructions
 are treated as untrusted source material, separated from the system instruction.
-The full pipeline's parent deadline will additionally bound the call.
+The full pipeline's parent deadline additionally bounds the call.
 
 Gemini receives a JSON schema, but returned JSON is independently checked with
 strict Pydantic types, bounded plain text, exactly ten questions, four distinct
 options and an exact answer match. Blocked/truncated finish states, malformed or
 oversized responses are rejected. No quiz is fabricated on failure. Tests use
 controlled SDK responses and fixture credentials; no real Gemini request has
-been made. Environment wiring, atomic persistence and POST integration follow
-in the next implementation phase.
+been made. Environment wiring and atomic POST persistence are covered by controlled
+integration tests.
+
+## Generate a quiz
+
+`POST /api/quizzes/` accepts only `{"url": "https://www.youtube.com/watch?v=..."}`.
+It returns 201 with the complete quiz, ten questions and their creation/update
+timestamps. Later GET/PATCH responses omit question timestamps as documented.
+Invalid input returns 400, missing authentication 401, and generation failures
+return a general 500 with no partial quiz. Without a configured Gemini key,
+generation fails before starting downloads or model initialization; other API
+operations remain available.
+
+Configure `GEMINI_API_KEY` **or** `GEMINI_API_KEY_FILE` at runtime after independent
+code review. Obtain your own key from [Google AI Studio](https://aistudio.google.com/api-keys).
+Use the local `.env.example` for the model and processing settings. The full job
+has a `GENERATION_TIMEOUT` of 900 seconds by default; download/audio/SDK limits
+are independently adjustable with `DOWNLOAD_TIMEOUT`, `AUDIO_TIMEOUT` and
+`GEMINI_TIMEOUT`. `MAX_VIDEO_SECONDS`, `MAX_DOWNLOAD_BYTES` and
+`MAX_TRANSCRIPT_CHARS` constrain input size. All numeric limits must be positive.
+The Gemini module additionally caps transcript text at 120,000 characters.
+
+`WHISPER_MODEL`, `WHISPER_CACHE_DIR` and `WHISPER_CPU_THREADS` control local
+inference. The model cache persists across requests. `GENERATION_TEMP_DIR` selects
+a writable temporary parent (system default if omitted); each job owns a private
+subdirectory. `GENERATION_LOCK_PATH` defaults to `/tmp/quizly-generation.lock` and
+must be shared by all processes in one instance. This lock permits one expensive
+generation at a time; contention yields controlled 500, not a new 429 policy.
+Use the existing writable data/tmp paths in containers; no new network is needed.
+
+Download, conversion, transcription and Gemini run outside database transactions.
+After complete independent validation, one transaction saves the quiz and all ten
+questions. Any insertion failure rolls back everything. Parent-owned temporary
+files are removed after success, failure and a controlled child timeout. An abrupt
+host crash or SIGKILL of the parent can leave files until host/container cleanup.

@@ -6,10 +6,11 @@ from rest_framework.viewsets import GenericViewSet
 
 from .models import Quiz
 from .permissions import IsQuizOwner
-from .serializers import QuizSerializer, QuizUpdateSerializer
+from .serializers import QuizCreateSerializer, QuizSerializer, QuizUpdateSerializer
 
 
 class QuizViewSet(
+    mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -19,7 +20,7 @@ class QuizViewSet(
     """Scope lists by owner, but resolve detail objects before ownership checks."""
 
     permission_classes = (IsAuthenticated, IsQuizOwner)
-    http_method_names = ("get", "patch", "delete", "head", "options")
+    http_method_names = ("get", "post", "patch", "delete", "head", "options")
     pagination_class = None
     lookup_value_regex = "[0-9]+"
 
@@ -34,6 +35,12 @@ class QuizViewSet(
 
     def get_serializer_class(self):
         """Use restricted update input while retaining the documented response."""
+        if self.action == "create":
+            return QuizCreateSerializer
         return (
             QuizUpdateSerializer if self.action == "partial_update" else QuizSerializer
         )
+
+    def perform_create(self, serializer):
+        """Bind ownership exclusively to the cookie-authenticated user."""
+        serializer.save(owner=self.request.user)

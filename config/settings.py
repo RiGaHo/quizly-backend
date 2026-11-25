@@ -103,3 +103,39 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": False,
 }
+
+# Credentials are optional at startup and resolved only by a generation request.
+GEMINI_API_KEY = env("GEMINI_API_KEY", default="")
+GEMINI_API_KEY_FILE = env("GEMINI_API_KEY_FILE", default="")
+GENERATION_TIMEOUT = env.int("GENERATION_TIMEOUT", default=900)
+GENERATION_LOCK_PATH = env(
+    "GENERATION_LOCK_PATH", default="/tmp/quizly-generation.lock"
+)
+GENERATION_TEMP_DIR = env("GENERATION_TEMP_DIR", default=None)
+GENERATION_OPTIONS = {
+    "download": {
+        "max_seconds": env.int("MAX_VIDEO_SECONDS", default=900),
+        "max_bytes": env.int("MAX_DOWNLOAD_BYTES", default=100_000_000),
+        "timeout": env.int("DOWNLOAD_TIMEOUT", default=120),
+    },
+    "audio": {
+        "max_seconds": env.int("MAX_VIDEO_SECONDS", default=900),
+        "timeout": env.int("AUDIO_TIMEOUT", default=120),
+    },
+    "whisper": {
+        "model_name": env("WHISPER_MODEL", default="base"),
+        "cache_directory": env("WHISPER_CACHE_DIR", default=str(BASE_DIR / "models")),
+        "cpu_threads": env.int("WHISPER_CPU_THREADS", default=2),
+        "max_chars": env.int("MAX_TRANSCRIPT_CHARS", default=120000),
+    },
+    "gemini": {
+        "model": env("GEMINI_MODEL", default="gemini-3.8-flash"),
+        "timeout": env.int("GEMINI_TIMEOUT", default=60),
+    },
+}
+if GENERATION_TIMEOUT <= 0 or any(
+    isinstance(value, int) and value <= 0
+    for options in GENERATION_OPTIONS.values()
+    for value in options.values()
+):
+    raise ImproperlyConfigured("Processing limits must be positive.")
