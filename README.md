@@ -148,3 +148,24 @@ comparison text such as `2 < 3` remains unchanged. This reduces risk in the
 unchanged reference frontend's HTML sinks; the separate portfolio frontend will
 also use safe DOM insertion. Limits: titles 200, descriptions 3000, question
 titles 1000 and individual options/answers 500 characters.
+
+## Media input boundaries
+
+YouTube links are normalized to `https://www.youtube.com/watch?v=<11-char-ID>`.
+Supported inputs include watch, youtu.be, shorts, embed and live URL syntax;
+a live-format URL does not authorize downloading an active livestream. The
+subsequent metadata stage must reject active streams. Tracking/time/playlist
+parameters are discarded, and playlist-only URLs are rejected. Credentials,
+foreign hosts, custom ports and ambiguous IDs are rejected before networking.
+
+The audio conversion module accepts only files inside its controlled workspace.
+It invokes FFmpeg without a shell, disables network protocols and playlist
+demuxers, limits decode time and uses one thread. The default conversion deadline
+is 120 seconds and maximum audio duration 900 seconds; the pipeline can supply
+explicit limits. Output is mono 16-bit PCM at 16 kHz and is checked for format,
+duration, byte size and truncation. Failed output is removed. The owning pipeline
+must manage the temporary directory for complete input/output cleanup.
+
+URL/audio unit tests use controlled files and mock only the FFmpeg subprocess
+boundary. They do not demonstrate a real YouTube download or installed FFmpeg.
+The download and complete generation pipeline are still in implementation.
