@@ -6,3 +6,4 @@ django-environ==0.14.0
 gunicorn==27.0.1
 yt-dlp==2026.11.23
 yt-dlp-ejs==0.8.0
+-r requirements-ai.txt

@@ -193,3 +193,35 @@ A hard whole-job deadline and temporary-directory cleanup still need integration
 in the synchronous generation orchestration. No real YouTube download has yet
 been performed; tests cover controlled DNS/socket boundaries and actual yt-dlp
 transport construction. Runtime transport compatibility remains to be verified.
+
+## Local Whisper and synchronous process limits
+
+Runtime requirements include OpenAI Whisper 20250625 and PyTorch 2.15.0+cpu.
+The latter is installed from the official PyTorch CPU wheel index; Linux Python
+3.12 wheels exist for AMD64 and ARM64. This establishes package availability,
+not a successful ARM64 container build. Whisper's upstream Linux dependencies
+include Triton on x86_64, but CUDA and an NVIDIA GPU are not required.
+
+The transcription module explicitly loads models on CPU and disables FP16 and
+verbose transcript output. Model name, writable persistent cache directory, CPU
+thread count and transcript limit are supplied by the pipeline. The default
+thread count is two; transcripts shorter than 20 characters or longer than
+120,000 characters are rejected. Whisper downloads missing official model weights
+into the supplied cache on first use; subsequent loads reuse those files. Keep
+this directory outside a read-only container root. `tiny` is useful for initial
+resource checks; `base` is the intended starting configuration. Larger models
+require separately measured RAM and processing time; Pi performance is unverified.
+
+The local processing session uses one reusable spawned Python child and returns
+its result synchronously. It is internal to the application, with no additional
+service, queue or async HTTP API. Successful tasks retain the loaded model;
+failed/timed-out tasks discard the process. A parent deadline terminates the
+process group, including FFmpeg/Node descendants. A subsequent request starts a
+fresh child. This boundary also covers stalled native inference and DNS work,
+which cannot be reliably interrupted by progress callbacks alone. Use one
+Gunicorn worker to avoid duplicate model allocations; complete pipeline and
+cross-process concurrency integration are still pending.
+
+Tests exercise real process reuse, timeout termination, failure sanitization and
+recovery; transcription tests replace the heavy model boundary. Real speech
+transcription and full pipeline integration remain separate checks.

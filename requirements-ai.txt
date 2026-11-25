@@ -1,0 +1,4 @@
+# Official CPU wheels for Linux AMD64/ARM64; CUDA is not required.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0+cpu
+openai-whisper==20250625
