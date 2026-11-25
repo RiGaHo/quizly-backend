@@ -378,3 +378,25 @@ Set the production host and exact HTTPS frontend origin explicitly. HSTS remains
 an edge/deployment decision. Proxy, Cloudflare and client timeouts can expire
 before CPU processing completes; the configured backend deadline is not proof
 of a working public synchronous round trip on a Raspberry Pi.
+
+## Continuous integration and GHCR
+
+`.github/workflows/ci.yml` runs Ruff/format/conventions, Django checks, migration
+consistency and the full test suite once per push to main or pull request.
+Pull requests build AMD64 without publishing. A successful main check triggers
+an automatic AMD64/ARM64 build and publishes
+`ghcr.io/rigaho/quizly-backend:latest` and `:sha-<full-commit-sha>`.
+There is no manual publish prerequisite. Actions are pinned to reviewed release
+commit SHAs. Only the publish job has `packages: write`; registry authentication
+uses its short-lived `GITHUB_TOKEN`. No Gemini secret or real AI request is used.
+Main builds share a repository-scoped GitHub Actions cache.
+
+GHCR package visibility is independent of code-repository visibility. New
+packages default to private even for public repositories. After the first
+successful publication, the owner must confirm/change this backend package to
+public in its package settings if required; the workflow does not invent a
+visibility-changing REST endpoint or use a personal token. See
+[GHCR publication and visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Check the Actions run, both architecture manifests, immutable SHA tag and actual
+package visibility separately. A workflow file or successful push does not prove
+an image publication or working deployment.
