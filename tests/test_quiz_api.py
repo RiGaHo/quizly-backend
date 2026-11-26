@@ -3,8 +3,8 @@
 from django.utils.dateparse import parse_datetime
 from rest_framework.test import APITestCase
 
-from accounts.models import User
-from quizzes.models import Question, Quiz
+from accounts_app.models import User
+from quizzes_app.models import Question, Quiz
 from tests.quiz_fixtures import create_quiz
 
 QUIZ_FIELDS = {

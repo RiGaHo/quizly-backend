@@ -2,8 +2,9 @@
 
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.generics import GenericAPIView
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .cookies import clear_token_cookies, set_token_cookie
 from .serializers import LoginSerializer, RegisterSerializer
@@ -50,7 +51,7 @@ class LoginView(GenericAPIView):
         return "Cookie"
 
 
-class RefreshView(GenericAPIView):
+class RefreshView(APIView):
     """Accept a refresh cookie even when the access cookie has expired."""
 
     authentication_classes = ()
@@ -68,8 +69,10 @@ class RefreshView(GenericAPIView):
         return "Cookie"
 
 
-class LogoutView(GenericAPIView):
+class LogoutView(APIView):
     """Revoke all tokens belonging to this login, preserving other logins."""
+
+    permission_classes = (IsAuthenticated,)
 
     def post(self, request):
         """Persist revocation before removing the matching browser cookies."""

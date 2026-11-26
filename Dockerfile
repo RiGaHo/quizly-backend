@@ -25,13 +25,13 @@ COPY --from=javascript /usr/local/LICENSE /usr/share/licenses/node/LICENSE
 COPY --from=dependencies /opt/venv /opt/venv
 WORKDIR /app
 COPY manage.py ./
-COPY config/ ./config/
-COPY accounts/ ./accounts/
-COPY quizzes/ ./quizzes/
+COPY core/ ./core/
+COPY accounts_app/ ./accounts_app/
+COPY quizzes_app/ ./quizzes_app/
 COPY generation/ ./generation/
 COPY docker/entrypoint.sh docker/gunicorn.conf.py ./docker/
 RUN chmod 0555 /app/docker/entrypoint.sh
 USER 10001:10001
 EXPOSE 8000
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["gunicorn", "config.wsgi:application", "--config", "/app/docker/gunicorn.conf.py"]
+CMD ["gunicorn", "core.wsgi:application", "--config", "/app/docker/gunicorn.conf.py"]

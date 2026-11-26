@@ -7,7 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from accounts.models import LoginSession, User
+from accounts_app.models import LoginSession, User
 
 ORIGIN = "http://testserver"
 REGISTRATION = {

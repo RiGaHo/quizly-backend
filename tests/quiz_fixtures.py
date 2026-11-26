@@ -1,6 +1,6 @@
 """Controlled complete quiz fixtures shared across API and generation tests."""
 
-from quizzes.models import Question, Quiz
+from quizzes_app.models import Question, Quiz
 
 
 def create_quiz(owner, title="Science"):

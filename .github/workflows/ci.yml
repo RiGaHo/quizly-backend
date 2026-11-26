@@ -31,10 +31,10 @@ jobs:
           ruff check .
           ruff format --check .
           python tools/check_conventions.py
-          python manage.py check --settings=config.test_settings
-          python manage.py makemigrations --check --dry-run --settings=config.test_settings
+          python manage.py check --settings=core.test_settings
+          python manage.py makemigrations --check --dry-run --settings=core.test_settings
       - name: Test API, processing and HTTP
-        run: python manage.py test --settings=config.test_settings
+        run: python manage.py test --settings=core.test_settings
 
   build-pr:
     if: github.event_name == 'pull_request'

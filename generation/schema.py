@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from quizzes.validators import validate_options, validate_plain_text
+from quizzes_app.validators import validate_options, validate_plain_text
 
 from .errors import GenerationError
 

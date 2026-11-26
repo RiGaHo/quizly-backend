@@ -9,11 +9,11 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from django.utils.dateparse import parse_datetime
 from rest_framework.test import APITestCase
 
-from accounts.models import User
+from accounts_app.models import User
 from generation.errors import GenerationError
 from generation.pipeline import generate_data, generation_slot
-from quizzes.models import Question, Quiz
-from quizzes.services import generate_and_save
+from quizzes_app.models import Question, Quiz
+from quizzes_app.services import generate_and_save
 from tests.test_generation_data import generated_quiz, sdk_response
 from tests.test_quiz_api import QUESTION_FIELDS, QUIZ_FIELDS
 
@@ -112,7 +112,7 @@ class QuizCreationTests(APITestCase):
 
     def test_post_contract_and_persistence(self):
         """POST returns the complete quiz and question timestamps after saving."""
-        with patch("quizzes.services.generate_data", return_value=generated_quiz()):
+        with patch("quizzes_app.services.generate_data", return_value=generated_quiz()):
             response = self.client.post("/api/quizzes/", self.payload, format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Quiz.objects.get().owner, self.user)
@@ -138,7 +138,7 @@ class QuizCreationTests(APITestCase):
     def test_invalid_input_never_starts_generation(self):
         """Reject foreign URLs, missing input and attempts to supply an owner."""
         cases = [{}, {"url": "https://evil.example/"}, self.payload | {"owner": 7}]
-        with patch("quizzes.services.generate_data") as generate:
+        with patch("quizzes_app.services.generate_data") as generate:
             for data in cases:
                 self.assertEqual(
                     self.client.post("/api/quizzes/", data, format="json").status_code,
@@ -149,7 +149,7 @@ class QuizCreationTests(APITestCase):
     def test_generation_failure_has_no_partial_quiz(self):
         """Expose a controlled 500 without model diagnostics or partial rows."""
         with patch(
-            "quizzes.services.generate_data", side_effect=GenerationError("private")
+            "quizzes_app.services.generate_data", side_effect=GenerationError("private")
         ):
             response = self.client.post("/api/quizzes/", self.payload, format="json")
         self.assertEqual(response.status_code, 500)
@@ -158,9 +158,9 @@ class QuizCreationTests(APITestCase):
 
     def test_storage_failure_rolls_back_quiz(self):
         """A question insertion failure rolls back the preceding quiz insertion."""
-        with patch("quizzes.services.generate_data", return_value=generated_quiz()):
+        with patch("quizzes_app.services.generate_data", return_value=generated_quiz()):
             with patch(
-                "quizzes.services.Question.objects.bulk_create",
+                "quizzes_app.services.Question.objects.bulk_create",
                 side_effect=IntegrityError,
             ):
                 response = self.client.post(
@@ -173,7 +173,7 @@ class QuizCreationTests(APITestCase):
     def test_invalid_generated_data_cannot_persist(self):
         """Revalidate at persistence even when an upstream stage supplies bad data."""
         with patch(
-            "quizzes.services.generate_data", return_value={"title": "Incomplete"}
+            "quizzes_app.services.generate_data", return_value={"title": "Incomplete"}
         ):
             response = self.client.post("/api/quizzes/", self.payload, format="json")
         self.assertEqual(response.status_code, 500)
@@ -198,7 +198,7 @@ class TransactionBoundaryTests(TransactionTestCase):
             self.assertFalse(connection.in_atomic_block)
             return generated_quiz()
 
-        with patch("quizzes.services.generate_data", side_effect=external_work):
+        with patch("quizzes_app.services.generate_data", side_effect=external_work):
             quiz = generate_and_save(
                 user, "https://www.youtube.com/watch?v=aBcdEF12_-3"
             )

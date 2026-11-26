@@ -2,12 +2,12 @@
 !requirements.txt
 !requirements-ai.txt
 !manage.py
-!config/
-!config/**
-!accounts/
-!accounts/**
-!quizzes/
-!quizzes/**
+!core/
+!core/**
+!accounts_app/
+!accounts_app/**
+!quizzes_app/
+!quizzes_app/**
 !generation/
 !generation/**
 !docker/
@@ -15,4 +15,4 @@
 !docker/gunicorn.conf.py
 **/__pycache__/
 **/*.pyc
-config/test_settings.py
+core/test_settings.py

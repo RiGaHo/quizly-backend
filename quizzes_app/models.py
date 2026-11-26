@@ -1,16 +1,18 @@
 """Owned quizzes and ordered, validated multiple-choice questions."""
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import models
 
+from .utils import QuestionValidationMixin
 from .validators import validate_options, validate_plain_text
 
 
 class Quiz(models.Model):
     """Store one generated quiz and its source video."""
 
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="quizzes"
+    )
     title = models.CharField(max_length=200, validators=[validate_plain_text])
     description = models.TextField(max_length=3000, validators=[validate_plain_text])
     video_url = models.URLField(max_length=200)
@@ -27,7 +29,7 @@ class Quiz(models.Model):
         return self.title
 
 
-class Question(models.Model):
+class Question(QuestionValidationMixin, models.Model):
     """Store a single question with the exact answer string used by the frontend."""
 
     quiz = models.ForeignKey(Quiz, on_delete=models.CASCADE, related_name="questions")
@@ -49,15 +51,6 @@ class Question(models.Model):
                 name="question_position_range",
             ),
         ]
-
-    def clean(self):
-        """Validate options and require an exact, unambiguous answer match."""
-        super().clean()
-        validate_options(self.question_options)
-        if self.answer not in self.question_options:
-            raise ValidationError(
-                {"answer": "The answer must match an option exactly."}
-            )
 
     def __str__(self):
         """Identify questions by their title in administrative lists."""

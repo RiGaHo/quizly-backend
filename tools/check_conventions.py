@@ -2,6 +2,7 @@
 
 import ast
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,7 +46,8 @@ def check_file(path):
 def main():
     """Fail the check when maintained code violates the documented conventions."""
     problems = [problem for path in source_files() for problem in check_file(path)]
-    print("\n".join(problems) if problems else "Conventions passed.")
+    message = "\n".join(problems) if problems else "Conventions passed."
+    sys.stdout.write(message + "\n")
     return bool(problems)
 
 

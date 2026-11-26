@@ -7,9 +7,9 @@ from rest_framework.exceptions import APIException
 from generation.errors import GenerationError
 from generation.urls import normalized_video_url
 
-from .models import Question, Quiz
-from .services import generate_and_save
-from .validators import validate_plain_text
+from ..models import Question, Quiz
+from ..services import generate_and_save
+from ..validators import validate_plain_text
 
 
 class QuestionSerializer(serializers.ModelSerializer):

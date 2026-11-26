@@ -1,24 +1,18 @@
 """Quiz management through DRF's standard list and object operations."""
 
-from rest_framework import mixins
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.viewsets import GenericViewSet
+from rest_framework.viewsets import ModelViewSet
 
-from .models import Quiz
+from ..models import Quiz
 from .permissions import IsQuizOwner
 from .serializers import QuizCreateSerializer, QuizSerializer, QuizUpdateSerializer
 
 
-class QuizViewSet(
-    mixins.CreateModelMixin,
-    mixins.ListModelMixin,
-    mixins.RetrieveModelMixin,
-    mixins.UpdateModelMixin,
-    mixins.DestroyModelMixin,
-    GenericViewSet,
-):
+class QuizViewSet(ModelViewSet):
     """Scope lists by owner, but resolve detail objects before ownership checks."""
 
+    queryset = Quiz.objects.prefetch_related("questions")
+    serializer_class = QuizSerializer
     permission_classes = (IsAuthenticated, IsQuizOwner)
     http_method_names = ("get", "post", "patch", "delete", "head", "options")
     pagination_class = None
@@ -26,7 +20,7 @@ class QuizViewSet(
 
     def get_queryset(self):
         """Keep foreign detail objects discoverable for the required 403 response."""
-        queryset = Quiz.objects.prefetch_related("questions")
+        queryset = super().get_queryset()
         return (
             queryset.filter(owner=self.request.user)
             if self.action == "list"

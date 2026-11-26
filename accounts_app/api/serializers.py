@@ -8,7 +8,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.validators import UniqueValidator
 
-from .models import User
+from ..models import User
 
 
 class RegisterSerializer(serializers.ModelSerializer):

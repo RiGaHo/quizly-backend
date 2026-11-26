@@ -1,12 +1,13 @@
 # Quizly Backend
 
-Django REST API for generating personal quizzes from YouTube audio using local
-Whisper transcription and Gemini Flash. The nine documented
-API operations are implemented; real external integration remains unverified.
+Django/DRF API for personal YouTube quizzes: yt-dlp downloads audio, FFmpeg
+converts it, local CPU Whisper transcribes it, and Gemini Flash generates ten
+questions with four options each. Quiz creation is synchronous and atomic.
 
-## Development setup
+## Local setup
 
-Python 3.12 is the selected runtime. Create an isolated environment:
+Use Python 3.12. Install **FFmpeg globally** (`sudo apt install ffmpeg` on
+Debian/Ubuntu) and Node.js 24 for yt-dlp's JavaScript support.
 
 ```sh
 python3.12 -m venv .venv
@@ -14,15 +15,9 @@ python3.12 -m venv .venv
 python -m pip install --upgrade pip==26.3
 pip install -r requirements-dev.txt
 cp .env.example .env
-python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
 ```
 
-Insert the generated value into `DJANGO_SECRET_KEY` in `.env`; do not commit it.
-Environment variables take precedence over `.env`. Set explicit allowed hosts.
-`DJANGO_DEBUG=true` enables local HTTP cookies; production defaults to HTTPS
-redirects and secure cookies and requires a key of at least 50 characters.
-Use `DATABASE_PATH` for a writable SQLite file on persistent storage. Its parent
-directory must exist. Run migrations before serving:
+Set a random `DJANGO_SECRET_KEY` in `.env`, then start Django:
 
 ```sh
 python manage.py migrate
@@ -30,374 +25,76 @@ python manage.py createsuperuser
 python manage.py runserver 127.0.0.1:8000
 ```
 
-FFmpeg must be installed as a system executable in PATH for audio processing
-and Whisper (on Debian/Ubuntu: `sudo apt install ffmpeg`). yt-dlp also requires
-a supported JavaScript runtime and its EJS component. AI dependencies are included in
-requirements-ai.txt and installed through requirements.txt.
+Environment values override `.env`; `DJANGO_READ_DOTENV=false` disables loading it.
+Use `DJANGO_DEBUG=true` only for local HTTP. Set `DJANGO_ALLOWED_HOSTS` and exact
+`FRONTEND_ORIGINS` (e.g. `http://127.0.0.1:5500`). Serve the separately supplied
+frontend on the same hostname with API base `http://127.0.0.1:8000/api/`.
+The admin is available locally at `/admin/`.
 
-Serve the provided, separately obtained frontend on `127.0.0.1`, for example
-port 5500. Its API base is `http://127.0.0.1:8000/api/`. Add the exact frontend
-origin to `FRONTEND_ORIGINS`; cookies require consistent host names. The original
-frontend is not distributed in this repository.
+## Configuration and API
 
-`TRUST_PROXY=true` trusts `X-Forwarded-Proto` only when a trusted reverse proxy
-removes incoming spoofed headers and direct backend access is prevented. Leave
-it false for direct local serving. Admin is available locally at `/admin/` and
-must not be exposed by portfolio routing. HSTS rollout belongs to the later
-verified HTTPS deployment, not local development.
+Supply **either** `GEMINI_API_KEY` **or** `GEMINI_API_KEY_FILE`; configuring both
+is an error. No Gemini key is required to start or use account/quiz-management
+endpoints. Generation without a key returns 500 without saving a partial quiz.
+Only the transcript is sent to Gemini; Whisper runs locally. Keep keys out of Git.
 
-## Checks
+`.env.example` lists processing settings. Defaults: 900-second videos/jobs,
+100 MB downloads, 120,000 transcript characters, Whisper `base` with two CPU
+threads, and `gemini-3.8-flash`. One generation runs at a time. Model weights are
+downloaded on first use and retained in `WHISPER_CACHE_DIR`. Temporary audio is
+removed after processing. `DATABASE_PATH` selects the writable SQLite file.
+
+- `POST /api/register/`, `/api/login/`, `/api/logout/`, `/api/token/refresh/`
+- `GET` and `POST /api/quizzes/`
+- `GET`, `PATCH` and `DELETE /api/quizzes/<id>/`
+
+Creation accepts `url`; PATCH accepts only `title` and `description`. Lists contain
+only the current user's quizzes. Existing foreign quizzes return 403; absent
+quizzes return 404. Authentication uses HttpOnly `access_token`/`refresh_token`
+cookies. Refresh needs no body. Logout revokes both token types for that login,
+leaving other sessions valid. Unsafe requests require a trusted Origin (or
+same-origin Referer); nonempty bodies must be JSON. Browser requests must include
+credentials. Game answers remain client-side; there is no progress API.
+
+## Structure and checks
+
+`core/` contains project configuration. `accounts_app/` and `quizzes_app/` contain
+models/admin, with API serializers, views, permissions/authentication and routing
+under `api/`. Model hooks live in app `utils.py`; `generation/` contains the
+unchanged processing pipeline. Each app's URLs are included by `core/urls.py`.
 
 ```sh
-python manage.py test --settings=config.test_settings
-python manage.py check --settings=config.test_settings
-python manage.py makemigrations --check --dry-run --settings=config.test_settings
-ruff check .
-ruff format --check .
-python tools/check_conventions.py
+python manage.py check --settings=core.test_settings
 ```
 
-The convention checker counts every physical line from `def` to the end of its
-last statement, including the signature, docstring, blank lines and comments.
-Decorators are outside that span. The limit is 14 lines for application, tools
-and test functions. Generated migrations and virtual environments are excluded.
-Ruff additionally checks formatting, imports, unused bindings and docstrings.
-Responsibility boundaries, meaningful naming and obsolete code require review.
+Regular CI runs the existing tests, Ruff, migration consistency and convention
+checks before publishing. Functions are limited to 14 physical lines including
+signature/docstring; generated migrations are excluded. Tests require no real key.
 
-Test settings contain only nonsecret fixtures, use an in-memory database and a
-fast password hasher. Never serve the application with test settings.
+## Container and deployment
 
-## Data integrity and administration
+Build with `docker build -t quizly-backend:local .`. The image includes FFmpeg,
+Node and CPU dependencies, runs as `10001:10001` on port 8000, and migrates before
+Gunicorn starts. Use one application instance during startup. Defaults are one
+worker, two threads and a 960-second worker timeout; configure through
+`GUNICORN_WORKERS`, `GUNICORN_THREADS`, `GUNICORN_TIMEOUT` as needed.
 
-Users have normalized, case-insensitively unique email addresses. Login sessions
-provide a shared revocation identity for the forthcoming cookie token endpoints.
-Quizzes belong to a user; questions cascade when their quiz is deleted. Question
-positions are unique within a quiz and constrained to 1–10 by SQLite. Application
-and admin validation require four distinct nonempty options and an exact answer.
-The generation service must validate and save all ten questions atomically;
-SQL row constraints alone cannot enforce a related-row count.
+Use read-only root, dropped capabilities and no-new-privileges. Provide writable
+`/data` (SQLite), `/models` (model cache) and `/tmp` (processing/server files).
+Mounted persistent paths must be writable by UID/GID 10001. Mount Gemini secrets
+read-only and set `GEMINI_API_KEY_FILE=/run/secrets/gemini_api_key`.
 
-Admin quiz forms require exactly ten questions. Individual question pages permit
-editing but not adding, moving or deleting questions independently. Quiz and
-question timestamps are read-only. The naming check permits Django/unittest's
-required lifecycle names (`setUp`, `tearDown`, `setUpClass`, `tearDownClass`,
-`setUpTestData`); their physical length and docstrings are still checked.
+Production requires a strong Django key, explicit hosts and HTTPS origins.
+Route `/api/` directly to the backend and other paths to the frontend; do not
+expose `/admin/`. Enable `TRUST_PROXY=true` only behind a trusted proxy replacing
+forwarded headers. Pi memory/performance, proxy timeouts and HSTS require separate
+deployment verification; no real Gemini or full external integration is claimed.
 
-## Cookie authentication and CSRF
+Main pushes automatically publish AMD64/ARM64 images to
+`ghcr.io/rigaho/quizly-backend:latest` and `:sha-<full-commit-sha>` after CI.
+Pull requests never publish.
 
-`POST /api/register/` accepts `username`, `email`, `password`, and
-`confirmed_password`; success returns 201. Password rules match the original
-frontend: at least six characters, an uppercase letter, lowercase letter and a
-digit (maximum 128). Django hashes passwords. Registration does not log users in.
-`POST /api/login/` accepts `username` and `password`; success returns 200 with
-`detail` and `user: {id, username, email}`. Invalid credentials return a generic
-401. `POST /api/token/refresh/` needs only the refresh cookie; it works with an
-expired access cookie, without a body or Content-Type header.
-
-JWTs appear only in HttpOnly `access_token` and `refresh_token` cookies, scoped
-to `/api/`, host-only, SameSite=Lax, Secure outside explicit local debug mode.
-Access lasts 15 minutes; refresh and its server-side session last seven days.
-There is no refresh rotation: renewal does not extend the session's deadline.
-An Authorization header cannot replace the cookies. API responses use no-store.
-
-`POST /api/logout/` requires a valid access cookie and revokes its login session
-before expiring both cookies. Every access and refresh validates the same signed
-session ID against persistent database state. Revocation rejects all tokens from
-that login, including renewed access tokens. Other independently established
-logins remain valid. Refresh never writes session state, so an overlapping
-refresh cannot restore a revoked session: even a token issued after a concurrent
-logout is rejected on use. A request already authorized before logout may finish.
-With expired access, refresh first and then logout. No tokens or passwords are
-stored in application logs; session rows contain identity and lifecycle dates.
-
-Unsafe API requests must contain an exact allowed `Origin`, or, only when
-Origin is absent, a Referer from the same origin or an explicitly allowed
-frontend. Missing provenance, `Origin: null`, wildcard-like matches and foreign
-origins return 403. Payloads must be JSON; empty logout and refresh bodies need
-no content type. CORS permissions alone are not used as CSRF protection. The
-Django admin keeps Django's normal CSRF-token protection.
-
-The original frontend supplies Origin automatically through browser fetch and
-needs no changes. For curl/Postman/automated clients, explicitly set
-`Origin: http://127.0.0.1:8000` for local API writes (or the actual configured
-origin). This header is a browser CSRF boundary, **not authentication**: nonbrowser
-clients can set it but still require valid credentials or signed cookies. We do
-not guess client type from User-Agent or Sec-Fetch headers and do not silently
-allow absent Origin/Referer. Use the same hostname for local frontend/backend;
-`localhost` and `127.0.0.1` are different cookie sites. Production uses the same
-HTTPS origin for frontend and `/api/`.
-
-## Quiz management
-
-`GET /api/quizzes/` returns a direct JSON array of the authenticated user's
-quizzes, newest first. `GET /api/quizzes/{id}/` returns one quiz with ordered
-nested questions. `PATCH` at the same URL accepts only `title` and/or
-`description`, returns the stored values and preserves omitted fields. Protected
-or unknown fields are rejected with 400. `DELETE` removes the quiz and its
-questions and returns 204 with no body. PUT and separate question CRUD routes
-are not provided. POST generation is described below.
-
-Detail lookup deliberately checks existence before ownership: existing foreign
-IDs return 403, absent IDs 404, and missing authentication 401. This reveals ID
-existence as required by the supplied contract, without returning foreign data.
-The list query is always scoped to its owner. DRF generic mixins implement the
-standard operations with object permissions and a restricted serializer.
-
-Texts are plain text: executable HTML markup is rejected, including admin
-edits, rather than silently rewritten or HTML-escaped in API output. Harmless
-comparison text such as `2 < 3` remains unchanged. This reduces risk in the
-unchanged reference frontend's HTML sinks; the separate portfolio frontend will
-also use safe DOM insertion. Limits: titles 200, descriptions 3000, question
-titles 1000 and individual options/answers 500 characters.
-
-## Media input boundaries
-
-YouTube links are normalized to `https://www.youtube.com/watch?v=<11-char-ID>`.
-Supported inputs include watch, youtu.be, shorts, embed and live URL syntax;
-a live-format URL does not authorize downloading an active livestream. The
-subsequent metadata stage must reject active streams. Tracking/time/playlist
-parameters are discarded, and playlist-only URLs are rejected. Credentials,
-foreign hosts, custom ports and ambiguous IDs are rejected before networking.
-
-The audio conversion module accepts only files inside its controlled workspace.
-It invokes FFmpeg without a shell, disables network protocols and playlist
-demuxers, limits decode time and uses one thread. The default conversion deadline
-is 120 seconds and maximum audio duration 900 seconds; the pipeline can supply
-explicit limits. Output is mono 16-bit PCM at 16 kHz and is checked for format,
-duration, byte size and truncation. Failed output is removed. The pipeline owns
-the temporary directory and cleans input/output files after success and failure.
-
-URL/audio unit tests use controlled files and mock only the FFmpeg subprocess
-boundary. They do not demonstrate a real YouTube download or installed FFmpeg.
-The pipeline calls the real download and conversion modules.
-
-## Download transport
-
-The download module uses pinned yt-dlp and yt-dlp-ejs releases plus Node 22 or
-newer in PATH. It enables only the YouTube extractor, selects direct HTTPS media
-instead of manifests and downloads one normalized video. No personal cookies,
-proxy environment, remote EJS components, external downloaders or persistent
-metadata cache are used. Current defaults are 15-minute videos, 100 MB download
-size, a 15-second socket timeout and a 120-second progress deadline; no retries.
-Live/upcoming videos and final metadata without duration are rejected.
-
-All yt-dlp requests use a dedicated urllib transport. Only youtube.com subdomains,
-googlevideo.com subdomains and youtubei.googleapis.com are allowed over HTTPS on
-443. DNS answers must all be globally routable. Connections use the checked
-numeric address while standard TLS still verifies the original hostname. Redirects
-pass through the same checks; HTTP downgrade, file, FTP and data transports are
-unavailable. This adapter deliberately uses pinned yt-dlp transport APIs and needs
-regression testing when yt-dlp is upgraded.
-
-Progress deadlines do not interrupt a stalled DNS lookup or JavaScript challenge.
-The parent process additionally enforces a whole-job deadline and cleans the
-temporary directory after terminating a stalled child. No real YouTube download has yet
-been performed; tests cover controlled DNS/socket boundaries and actual yt-dlp
-transport construction. Runtime transport compatibility remains to be verified.
-
-## Local Whisper and synchronous process limits
-
-Runtime requirements include OpenAI Whisper 20250625 and PyTorch 2.15.0+cpu.
-The latter is installed from the official PyTorch CPU wheel index; Linux Python
-3.12 wheels exist for AMD64 and ARM64. This establishes package availability,
-not a successful ARM64 container build. Whisper's upstream Linux dependencies
-include Triton on x86_64, but CUDA and an NVIDIA GPU are not required.
-
-The transcription module explicitly loads models on CPU and disables FP16 and
-verbose transcript output. Model name, writable persistent cache directory, CPU
-thread count and transcript limit are supplied by the pipeline. The default
-thread count is two; transcripts shorter than 20 characters or longer than
-120,000 characters are rejected. Whisper downloads missing official model weights
-into the supplied cache on first use; subsequent loads reuse those files. Keep
-this directory outside a read-only container root. `tiny` is useful for initial
-resource checks; `base` is the intended starting configuration. Larger models
-require separately measured RAM and processing time; Pi performance is unverified.
-
-The local processing session uses one reusable spawned Python child and returns
-its result synchronously. It is internal to the application, with no additional
-service, queue or async HTTP API. Successful tasks retain the loaded model;
-failed/timed-out tasks discard the process. A parent deadline terminates the
-process group, including FFmpeg/Node descendants. A subsequent request starts a
-fresh child. This boundary also covers stalled native inference and DNS work,
-which cannot be reliably interrupted by progress callbacks alone. Use one
-Gunicorn worker to avoid duplicate model allocations. A shared file lock also
-limits generation across processes within the same instance.
-
-Tests exercise real process reuse, timeout termination, failure sanitization and
-recovery; transcription tests replace the heavy model boundary. Real speech
-transcription and real external pipeline integration remain separate checks.
-
-## Gemini boundary and credentials
-
-The Gemini module uses the official `google-genai` SDK with the stable
-`gemini-3.8-flash` model as its explicit default. The model can be passed by the
-pipeline; there is no automatic fallback or model upgrade. Official model and
-pricing references checked on 2026-11-25:
-[model](https://aistudio.google.com/docs/models/gemini-3.8-flash),
-[pricing](https://aistudio.google.com/docs/pricing),
-[structured output](https://aistudio.google.com/docs/structured-output).
-A Free Tier is documented, but account eligibility, quotas and future pricing
-must be checked by the operator. No billing or API service is activated here.
-
-The credential resolver accepts an explicit environment value or an explicitly
-configured secret-file path. Both supplied together are an error; neither source
-silently overrides the other. Missing, unreadable, empty or oversized credentials
-fail without revealing paths or contents. The file is read at request time and
-bounded to 4096 characters. The pipeline wires these inputs to
-`GEMINI_API_KEY` and `GEMINI_API_KEY_FILE`; the preferred production file is
-`/run/secrets/gemini_api_key`, provisioned separately by the operator. No real key
-belongs in this repository, development VM, CI or review archive.
-
-Only transcript text is sent to `generativelanguage.googleapis.com`; no audio,
-user identity, database records or authentication cookies are included. The
-client explicitly disables Vertex/Enterprise autodiscovery, environment proxy
-inheritance and automatic retries. A call has a 60-second SDK timeout by default,
-8192 output-token limit and no tools, search or URL context. Transcript instructions
-are treated as untrusted source material, separated from the system instruction.
-The full pipeline's parent deadline additionally bounds the call.
-
-Gemini receives a JSON schema, but returned JSON is independently checked with
-strict Pydantic types, bounded plain text, exactly ten questions, four distinct
-options and an exact answer match. Blocked/truncated finish states, malformed or
-oversized responses are rejected. No quiz is fabricated on failure. Tests use
-controlled SDK responses and fixture credentials; no real Gemini request has
-been made. Environment wiring and atomic POST persistence are covered by controlled
-integration tests.
-
-## Generate a quiz
-
-`POST /api/quizzes/` accepts only `{"url": "https://www.youtube.com/watch?v=..."}`.
-It returns 201 with the complete quiz, ten questions and their creation/update
-timestamps. Later GET/PATCH responses omit question timestamps as documented.
-Invalid input returns 400, missing authentication 401, and generation failures
-return a general 500 with no partial quiz. Without a configured Gemini key,
-generation fails before starting downloads or model initialization; other API
-operations remain available.
-
-Configure `GEMINI_API_KEY` **or** `GEMINI_API_KEY_FILE` at runtime after independent
-code review. Obtain your own key from [Google AI Studio](https://aistudio.google.com/api-keys).
-Use the local `.env.example` for the model and processing settings. The full job
-has a `GENERATION_TIMEOUT` of 900 seconds by default; download/audio/SDK limits
-are independently adjustable with `DOWNLOAD_TIMEOUT`, `AUDIO_TIMEOUT` and
-`GEMINI_TIMEOUT`. `MAX_VIDEO_SECONDS`, `MAX_DOWNLOAD_BYTES` and
-`MAX_TRANSCRIPT_CHARS` constrain input size. All numeric limits must be positive.
-The Gemini module additionally caps transcript text at 120,000 characters.
-
-`WHISPER_MODEL`, `WHISPER_CACHE_DIR` and `WHISPER_CPU_THREADS` control local
-inference. The model cache persists across requests. `GENERATION_TEMP_DIR` selects
-a writable temporary parent (system default if omitted); each job owns a private
-subdirectory. `GENERATION_LOCK_PATH` defaults to `/tmp/quizly-generation.lock` and
-must be shared by all processes in one instance. This lock permits one expensive
-generation at a time; contention yields controlled 500, not a new 429 policy.
-Use the existing writable data/tmp paths in containers; no new network is needed.
-
-Download, conversion, transcription and Gemini run outside database transactions.
-After complete independent validation, one transaction saves the quiz and all ten
-questions. Any insertion failure rolls back everything. Parent-owned temporary
-files are removed after success, failure and a controlled child timeout. An abrupt
-host crash or SIGKILL of the parent can leave files until host/container cleanup.
-
-### Configuration and HTTP verification
-
-`FRONTEND_ORIGINS` accepts exact origins only (no paths, wildcards or userinfo).
-Production requires HTTPS origins; explicit HTTP origins are supported with
-`DJANGO_DEBUG=true` for the original local frontend. Set `DJANGO_READ_DOTENV=false`
-to prevent local `.env` loading in automated or controlled deployments. Tests
-disable dotenv and clear Gemini credential inputs; no real key is needed.
-
-`tests.test_http` runs Django's live server over a real loopback socket and uses
-a standard HTTP cookie jar for registration, login, quiz listing, bodyless
-refresh, logout and subsequent rejection. This verifies HTTP behavior, not an
-actual browser's SameSite/CORS enforcement or the external AI pipeline.
-
-A dependency audit found no known vulnerabilities after upgrading the local
-installer to pip 26.3. `pip-audit` cannot identify `torch==2.15.0+cpu` on PyPI,
-so that CPU wheel remains outside this audit's coverage. A clean audit is not
-a general security guarantee.
-
-## Container runtime
-
-Build locally with `docker build -t quizly-backend:local .`. The runtime uses
-Python 3.12.16 on Debian Trixie, Node 24.22.3 LTS for yt-dlp's local JavaScript
-solver, distro FFmpeg and the pinned CPU Python dependencies. Node's bundled
-license is preserved at `/usr/share/licenses/node/LICENSE`. Base-image
-manifests support AMD64 and ARM64; this alone does not prove an ARM64 build.
-Sources: [Python official image](https://hub.docker.com/_/python) and
-[Node security release](https://nodejs.org/en/blog/release/v24.22.3).
-Rebuild regularly to incorporate Debian security updates; apt packages are
-resolved at build time, so builds are not claimed to be bit-for-bit identical.
-
-Runtime code is root-owned and runs as UID/GID `10001:10001` on port 8000.
-Only application packages, manage.py and startup configuration enter `/app`.
-The build context excludes tests, test settings, Git, databases, environments,
-model weights and secrets. No Gemini key is used during build or normal startup.
-There is no embedded production database or model download during image build.
-
-Use a read-only root filesystem, `--cap-drop ALL` and
-`--security-opt no-new-privileges:true`. Provide writable `/data` for SQLite,
-`/models` for Whisper weights and `/tmp` for audio/process locks/server temporary
-files. Bind-mounted directories must be writable by 10001:10001; the runtime
-never changes host ownership or runs as root. A named volume initially inherits
-the image directory's ownership. Read-only secret mounts remain separate.
-Set `GEMINI_API_KEY_FILE=/run/secrets/gemini_api_key` when a reviewed real key is
-available. Do not pass a key as a build argument or commit a secret file.
-
-The default 900-second mono PCM audio occupies about 28.8 MB; source downloads
-are limited to 100 MB. Conversion and decoder overhead, Python/Whisper/PyTorch,
-model downloads and model inference need additional memory. `/tmp` at 512 MiB
-is a starting point for local smoke tests only, not a measured Pi requirement.
-A tmpfs counts toward RAM; choose its size and container RAM limit together.
-The persistent base-model cache needs additional space. Actual peak memory and
-performance on Raspberry Pi must be measured before choosing production limits.
-
-The entrypoint checks Django configuration and migrates before starting
-Gunicorn. Run only one application instance during this migration/start phase;
-rolling overlapping replicas sharing SQLite are not supported. Back up the
-SQLite database before applying a new image. Diagnostic command overrides
-(e.g. `python manage.py check`) skip automatic migrations. Create administrators
-explicitly; no default account is provisioned. Admin is for local development
-or a separately restricted operator path, never a public proxy route.
-The API runtime does not expose an admin static-file service.
-
-Gunicorn defaults to one worker and two threads, permitting ordinary requests
-while a synchronous generation is active. One child retains one Whisper model;
-a shared file lock serializes generation across workers. Increasing
-`GUNICORN_WORKERS` can duplicate resident models and is discouraged on the Pi.
-`GUNICORN_THREADS` and `GUNICORN_TIMEOUT` are configurable; defaults are 2 and
-960 seconds. `GENERATION_TIMEOUT=900` bounds each job in the child even with
-threaded Gunicorn (whose timeout measures worker liveness, not request duration).
-An HTTP client disconnect does not cancel ongoing generation. Restarting or
-force-killing the container loses in-flight work; the database stays atomic.
-
-For later deployment prefer direct Traefik routing: `/api/` to backend:8000,
-everything else to frontend:8080 on the existing `web-stack-proxy` network.
-Use project-specific service names and no public backend port. Do not route
-`/admin/`. No Nginx API proxy is required. Configure `TRUST_PROXY=true` only when
-all backend traffic comes through a trusted proxy that replaces forwarded
-headers; protect access from other services on the shared network accordingly.
-Set the production host and exact HTTPS frontend origin explicitly. HSTS remains
-an edge/deployment decision. Proxy, Cloudflare and client timeouts can expire
-before CPU processing completes; the configured backend deadline is not proof
-of a working public synchronous round trip on a Raspberry Pi.
-
-## Continuous integration and GHCR
-
-`.github/workflows/ci.yml` runs Ruff/format/conventions, Django checks, migration
-consistency and the full test suite once per push to main or pull request.
-Pull requests build AMD64 without publishing. A successful main check triggers
-an automatic AMD64/ARM64 build and publishes
-`ghcr.io/rigaho/quizly-backend:latest` and `:sha-<full-commit-sha>`.
-There is no manual publish prerequisite. Actions are pinned to reviewed release
-commit SHAs. Only the publish job has `packages: write`; registry authentication
-uses its short-lived `GITHUB_TOKEN`. No Gemini secret or real AI request is used.
-Main builds share a repository-scoped GitHub Actions cache.
-
-GHCR package visibility is independent of code-repository visibility. New
-packages default to private even for public repositories. After the first
-successful publication, the owner must confirm/change this backend package to
-public in its package settings if required; the workflow does not invent a
-visibility-changing REST endpoint or use a personal token. See
-[GHCR publication and visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
-Check the Actions run, both architecture manifests, immutable SHA tag and actual
-package visibility separately. A workflow file or successful push does not prove
-an image publication or working deployment.
+**Deployment after this structure change:** stop the backend, delete the old
+SQLite database and its sidecar files, pull the new image, and start the backend.
+Keep the Whisper model cache and environment configuration. Existing database
+compatibility is intentionally not provided.

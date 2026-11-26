@@ -26,7 +26,7 @@ class ConfigurationTests(SimpleTestCase):
         environment["DJANGO_READ_DOTENV"] = "false"
         environment.update(values)
         return subprocess.run(
-            [sys.executable, "-c", "import config.settings"],
+            [sys.executable, "-c", "import core.settings"],
             env=environment,
             capture_output=True,
             text=True,

@@ -6,9 +6,9 @@ from django.db import IntegrityError, transaction
 from django.forms import inlineformset_factory, modelform_factory
 from django.test import TestCase
 
-from accounts.models import User
-from quizzes.admin import QuestionAdmin, QuestionFormSet
-from quizzes.models import Question, Quiz
+from accounts_app.models import User
+from quizzes_app.admin import QuestionAdmin, QuestionFormSet
+from quizzes_app.models import Question, Quiz
 
 INVALID_OPTIONS = [
     None,

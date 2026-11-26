@@ -7,8 +7,8 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from accounts.models import LoginSession, User
-from accounts.tokens import active_session, revoke_session
+from accounts_app.api.tokens import active_session, revoke_session
+from accounts_app.models import LoginSession, User
 
 
 class SessionTests(APITestCase):
@@ -33,7 +33,8 @@ class SessionTests(APITestCase):
     def test_refresh_cannot_resurrect_concurrently_revoked_session(self):
         """A token issued after an overlapping logout remains unusable."""
         with patch(
-            "accounts.tokens.active_session", side_effect=self.revoke_after_validation
+            "accounts_app.api.tokens.active_session",
+            side_effect=self.revoke_after_validation,
         ):
             response = self.client.post("/api/token/refresh/")
         self.assertEqual(response.status_code, 200)
